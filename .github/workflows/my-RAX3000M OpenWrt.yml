@@ -17,9 +17,6 @@ on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
-      Tempoary_IP:
-        description: '192.168.1.11'
-        default: ''
       ssh:
         description: 'SSH connection to Actions'
         required: false
