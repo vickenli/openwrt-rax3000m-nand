@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       Tempoary_IP:
-        description: '固件 IP 地址 [可选]'
+        description: '192.168.1.11'
         default: ''
       ssh:
         description: 'SSH connection to Actions'
