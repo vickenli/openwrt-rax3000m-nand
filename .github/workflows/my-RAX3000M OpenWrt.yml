@@ -1,56 +1,249 @@
-#=================================================
+name: Build_mt7981_rax3000m
+# 工作流的名称，这里命名为Build_mt7981_rax3000m
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        # 描述：用于连接到Actions的SSH连接
+        required: false
+        # 是否必须：否
+        default: 'false'
+      release:
+        description: 'Release firmware'
+        # 描述：用于发布固件
+        required: false
+        # 是否必须：否
+        default: 'false'
+  push:  # push操作
+    branches:  # 分支相关设置
+      - master  # 当push操作发生在master分支时触发
+  schedule:  # 定时任务相关设置
+    - cron: 0 4 28 * *  # 每月28日国际时间4点（北京时间中午12点，因为北京 + 8时区）执行定时任务
+  watch:  # 与监视操作相关
+    types: started  # 当监视操作类型为started（例如被点击star之类）时触发
+
+### 环境变量设置
+
+env:
+  REPO_URL: https://github.com/hanwckf/immortalwrt - mt798x  
+  # 编译固件源码的链接，这里设置为指定的github仓库链接，请勿修改
+  REPO_BRANCH: openwrt - 21.02  
+  # 源码链接对应的分支，这里设置为openwrt - 21.02，请勿修改
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: my.config  
+  # 配置文件，可以通过SSH远程定制固件插件，也可本地提取配置粘贴到此文件
+  DIY_P1_SH: diy - part1.sh  
+  # 自定义执行文件1
+  DIY_P2_SH: diy - part2.sh  
+  # 自定义执行文件2
+  UPLOAD_BIN_DIR: true  
+  # 是否上传【bin文件夹】到github空间，true为开启，false为关闭
+  UPLOAD_FIRMWARE: false  
+  # 是否上传固件到github空间，true为开启，false为关闭
+  UPLOAD_COWTRANSFER: false  
+  # 是否上传固件到【奶牛快传】，true为开启，false为关闭
+  UPLOAD_WETRANSFER: false  
+  # 是否上传固件到【WETRANSFER】，true为开启，false为关闭
+  UPLOAD_RELEASE: false  
+  # 是否上传固件到Github Releases，true为开启，false为关闭
+  DELETE_OLD_WORKFLOW: false  
+  # 是否删除早期的workflow任务，true为是，false为否
+  DELETE_OLD_RELEASE: true  
+  # 是否删除早期的Releases任务，true为是，false为否
+  TZ: Asia/Shanghai  
+  # 设置时区为亚洲/上海
+
+### 结束
+
+jobs:
+  build:
+    runs - on: ubuntu - 20.04
+    # 此任务在ubuntu - 20.04系统上运行
+
+    steps:
+    - name:  检验结束  Checkout  
+    # 步骤名称：检验结束（这里可能是从代码库中获取代码等操作，类似于检出代码）
+      uses: actions/checkout@main
+      # 使用actions/checkout操作，这里指定的版本为main
+
+    - name: 初始化编译环境  Initialization environment  
+    # 步骤名称：初始化编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+        # 设置DEBIAN_FRONTEND环境变量为noninteractive，用于在非交互模式下执行命令
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        # 删除指定的目录，可能是为了清理环境，避免干扰编译
+        sudo - E apt - get - qq update
+        # 使用sudo权限更新软件包列表，-E表示继承当前环境变量，-qq表示安静模式
+        sudo - E apt - get - qq install $(curl - fsSL git.io/depends - ubuntu - 2004)
+        # 使用sudo权限安装特定的依赖包，依赖包链接由curl获取
+        sudo - E apt - get - qq autoremove --purge
+        # 使用sudo权限自动移除不需要的软件包并且清除配置文件
+        sudo - E apt - get - qq clean
+        # 使用sudo权限清理软件包缓存
+        sudo timedatectl set - timezone "$TZ"
+        # 使用sudo权限设置系统时区为前面定义的TZ变量的值
+        sudo mkdir - p /workdir
+        # 使用sudo权限创建/workdir目录，如果不存在的话
+        sudo chown $USER:$GROUPS /workdir
+        # 使用sudo权限将/workdir目录的所有者设置为当前用户和用户组
+
+    - name: 下载固件源码  Clone source code
+    # 步骤名称：下载固件源码
+      working - directory: /workdir
+      # 设置工作目录为/workdir
+      run: |
+        df - hT $PWD
+        # 查看当前工作目录（$PWD）的磁盘使用情况，以人类可读（h）和文件系统类型（T）的格式显示
+        git clone $REPO_URL - b $REPO_BRANCH openwrt
+        # 根据前面定义的REPO_URL和REPO_BRANCH克隆代码库到openwrt目录
+        ln - sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        # 创建符号链接，将/workdir/openwrt链接到$GITHUB_WORKSPACE/openwrt
+
+    - name: 加载源  Load custom feeds
+    # 步骤名称：加载源
+      run: |
+        [ - e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        # 如果$FEEDS_CONF文件存在，则将其移动到openwrt/feeds.conf.default
+        chmod + x $DIY_P1_SH
+        # 给$DIY_P1_SH文件添加可执行权限
+        cd openwrt
+        # 进入openwrt目录
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+        # 执行$GITHUB_WORKSPACE下的$DIY_P1_SH脚本
+
+    - name: 更新源  Update feeds
+    # 步骤名称：更新源
+      run: cd openwrt &&./scripts/feeds update - a
+      # 进入openwrt目录并执行feeds update - a命令，更新所有的源
+
+    - name: 安装源  Install feeds
+    # 步骤名称：安装源
+      run: cd openwrt &&./scripts/feeds install - a
+      # 进入openwrt目录并执行feeds install - a命令，安装所有的源
+
+    - name: 加载diy.config设置  Load custom configuration
+    # 步骤名称：加载自定义配置（diy.config）设置
+      run: |
+        [ - e files ] && mv files openwrt/files
+        # 如果files文件存在，则将其移动到openwrt/files
+        [ - e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        # 如果$CONFIG_FILE文件存在，则将其移动到openwrt/.config
+        chmod + x $DIY_P2_SH
+        # 给$DIY_P2_SH文件添加可执行权限
+        cd openwrt
+        # 进入openwrt目录
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+        # 执行$GITHUB_WORKSPACE下的$DIY_P2_SH脚本
+
+    - name: SSH远程连接服务器配置固件  SSH connection to Actions
+    # 步骤名称：通过SSH远程连接服务器配置固件
+      uses: P3TERX/ssh2actions@v1.0.0
+      # 使用P3TERX/ssh2actions@v1.0.0这个操作
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh!= 'false') || contains(github.event.action, 'ssh')
+      # 如果满足以下条件则执行此步骤：（github.event.inputs.ssh为'true'且不为'false'）或者github.event.action包含'ssh'
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # 设置TELEGRAM_CHAT_ID环境变量为secrets中的TELEGRAM_CHAT_ID值（可能是用于通知相关的秘密信息）
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        # 设置TELEGRAM_BOT_TOKEN环境变量为secrets中的TELEGRAM_BOT_TOKEN值（可能是用于通知相关的秘密信息）
+
+    - name: 下载软件包  Download package
+    # 步骤名称：下载软件包
+      id: package
+      # 给这个步骤一个id为package
+      run: |
+        cd openwrt
+        # 进入openwrt目录
+        make defconfig
+        # 执行make defconfig命令，可能是用于生成默认配置
+        make download - j8
+        # 执行make download - j8命令，下载软件包，-j8可能是表示使用8个线程进行下载
+        find dl - size - 1024c - exec ls - l {} \;
+        # 在dl目录下查找大小小于1024字节的文件，并列出详细信息
+        find dl - size - 1024c - exec rm - f {} \;
+        # 在dl目录下查找大小小于1024字节的文件，并强制删除
+
+    - name: 开始编译固件  Compile the firmware
+    # 步骤名称：开始编译固件
+      id: compile
+      # 给这个步骤一个id为compile
+      run: |
+        cd openwrt
+        # 进入openwrt目录
+        echo - e "$(nproc) thread compile"
+        # 输出使用的线程数用于编译
+        make - j$(nproc) || make - j1 || make - j1 V = s
+        # 执行make命令进行编译，如果使用$(nproc)个线程编译失败，则尝试使用1个线程编译（两次），V = s可能是用于显示详细编译信息
+        echo "success" >> $GITHUB_OUTPUT
+        # 将success写入$GITHUB_OUTPUT文件（这是修改后用于替代set - output的方式）
+        grep '^CONFIG_TARGET_DEVICE.*DEVICE.*=y'.config | sed - r's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        # 从.config文件中查找满足特定条件的行，通过正则表达式提取设备名称并写入DEVICE_NAME文件
+        [ - s DEVICE_NAME ] && echo "DEVICE_NAME = _$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        # 如果DEVICE_NAME文件有内容，则将设备名称写入$GITHUB_ENV环境变量
+        echo "FILE_DATE = _$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        # 将当前日期和时间（格式化后）写入$GITHUB_ENV环境变量
+
+    - name: 检查github储存空间情况  Check space usage
+    # 步骤名称：检查github储存空间情况
+      if: (!cancelled())
+      # 如果任务没有被取消则执行
+      run: df - hT
+      # 查看磁盘使用情况，以人类可读（h）和文件系统类型（T）的格式显示
+
+    - name: 加载bin目录在github空间  Upload bin directory
+    # 步骤名称：将bin目录加载到github空间
+      uses: actions/upload - artifact@main
+      # 使用actions/upload - artifact@main操作
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+      # 如果前面编译步骤成功并且UPLOAD_BIN_DIR为true则执行
+      with:
+        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        # 设置上传的名称，包含设备名称和日期等信息
+        path: openwrt/bin
+        # 设置要上传的路径为openwrt/bin
+
+    - name: 整理固件文件夹  Organize files
+    # 步骤名称：整理固件文件夹
+      id: organize
+      # 给这个步骤一个id为organize
+      if: env.UPLOAD_FIRMWARE == 'true' &&!cancelled()
+      # 如果UPLOAD_FIRMWARE为true并且任务没有被取消则执行
       run: |
         cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "::set-output name=status::success"
+        # 进入特定的目录
+        rm - rf packages
+        # 删除packages目录
+        echo "FIRMWARE = $PWD" >> $GITHUB_ENV
+        # 将当前工作目录（固件所在目录）写入$GITHUB_ENV环境变量
+        echo "success" >> $GITHUB_OUTPUT
+        # 将success写入$GITHUB_OUTPUT文件（这是修改后用于替代set - output的方式）
 
     - name: 加载固件在github空间  Upload firmware directory
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+    # 步骤名称：将固件加载到github空间
+      uses: actions/upload - artifact@main
+      # 使用actions/upload - artifact@main操作
+      if: steps.organize.outputs.status == 'success' &&!cancelled()
+      # 如果前面整理固件步骤成功并且任务没有被取消则执行
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        # 设置上传的名称，包含设备名称和日期等信息
         path: ${{ env.FIRMWARE }}
+        # 设置要上传的路径为前面定义的固件路径（$FIRMWARE）
 
     - name: 上传固件到奶牛快传  Upload firmware to cowtransfer
+    # 步骤名称：上传固件到奶牛快传
       id: cowtransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+      # 给这个步骤一个id为cowtransfer
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' &&!cancelled()
+      # 如果前面整理固件步骤成功、UPLOAD_COWTRANSFER为true并且任务没有被取消则执行
       run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
-        echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
-        echo "::set-output name=url::$(cat cowtransfer.log | grep https | cut -f3 -d" ")"
-
-    - name: 加载固件到WeTransfer  Upload firmware to WeTransfer
-      id: wetransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-        echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"
-
-    - name: 生成版本标签  Generate release tag
-      id: tag
-      if: (env.UPLOAD_RELEASE == 'true' && github.event.inputs.release == 'true') && !cancelled()
-      run: |
-        echo "::set-output name=release_tag::$(date +v%Y%m%d%H%M%S)"
-        touch release.txt
-        [ $UPLOAD_COWTRANSFER = true ] && echo "🔗 [Cowtransfer](${{ steps.cowtransfer.outputs.url }})" >> release.txt
-        [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer](${{ steps.wetransfer.outputs.url }})" >> release.txt
-        echo "::set-output name=status::success"
-
-    - name: 上传固件到发布  Upload firmware to release
-      uses: softprops/action-gh-release@v1
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
-
-    # - name: 删除旧的工作流  Delete workflow runs
+        curl - fsSL git.io/file - transfer | sh
+        # 使用curl下载并执行file - transfer脚本
+      ./transfer cow
     #   uses: GitRML/delete-workflow-runs@main
     #   with:
     #     retain_days: 1
